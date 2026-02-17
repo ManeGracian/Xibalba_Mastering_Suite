@@ -10,20 +10,6 @@
 namespace xb
 {
 
-/*
-==============================================================================
-    xb::Oversampler<SampleType>
-
-    Oversampling wrapper RT-safe y “lego-friendly” para JUCE dsp::Oversampling.
-
-    - RT-safe: no allocs/initProcessing en process()
-    - Thread-safe: setMode() vía atomics
-    - Channel-agnostic: preparado con spec.numChannels
-    - API segura: processOversampled(block, fn) encapsula up/down + bypass
-
-==============================================================================
-*/
-
 template <typename SampleType>
 class Oversampler final : public DSPBlockBase
 {
@@ -39,16 +25,15 @@ public:
     Oversampler() = default;
     ~Oversampler() override = default;
 
-    //==========================================================================
+    //==============================================================
     void reset() noexcept override
     {
         for (auto& os : oversamplers)
-            if (os != nullptr)
+            if (os)
                 os->reset();
     }
 
-    //==========================================================================
-    // Thread-safe (UI/host thread)
+    //==============================================================
     void setMode (Mode newMode) noexcept
     {
         requestedMode.store (newMode, std::memory_order_release);
@@ -59,9 +44,10 @@ public:
         return requestedMode.load (std::memory_order_acquire);
     }
 
-    //==========================================================================
+    //==============================================================
     template <typename ProcessFn>
-    void processOversampled (juce::dsp::AudioBlock<SampleType>& block, ProcessFn&& fn) noexcept
+    void processOversampled (juce::dsp::AudioBlock<SampleType>& block,
+                             ProcessFn&& fn) noexcept
     {
         juce::ScopedNoDenormals noDenormals;
 
@@ -72,6 +58,7 @@ public:
         }
 
         auto* os = getOversamplerForCurrentMode();
+
         if (os == nullptr)
         {
             fn (block);
@@ -83,72 +70,73 @@ public:
         os->processSamplesDown (block);
     }
 
-    //==========================================================================
+    //==============================================================
     [[nodiscard]] int getLatencySamples() const noexcept override
     {
         if (auto* os = getOversamplerForCurrentMode())
             return (int) os->getLatencyInSamples();
+
         return 0;
     }
 
-    [[nodiscard]] int getMaxLatencySamples() const noexcept
-    {
-        int maxLat = 0;
-        for (const auto& os : oversamplers)
-            if (os != nullptr)
-                maxLat = juce::jmax (maxLat, (int) os->getLatencyInSamples());
-        return maxLat;
-    }
-
 protected:
-    //==========================================================================
+
     void prepareInternal (const juce::dsp::ProcessSpec& spec) override
     {
-        if (spec.sampleRate <= 0.0 || spec.maximumBlockSize == 0 || spec.numChannels == 0)
+        if (spec.sampleRate <= 0.0 ||
+            spec.maximumBlockSize == 0 ||
+            spec.numChannels == 0)
             return;
 
         numChannelsPrepared  = (int) spec.numChannels;
         maxBlockSizePrepared = (int) spec.maximumBlockSize;
 
-        oversamplers.fill (nullptr);
+        // 🔥 CORRECCIÓN: no usar fill() con unique_ptr
+        for (auto& os : oversamplers)
+            os.reset();
 
-        createOversampler (Mode::x2, 1); // 2x
-        createOversampler (Mode::x4, 2); // 4x
-        createOversampler (Mode::x8, 3); // 8x
+        createOversampler (Mode::x2, 1);
+        createOversampler (Mode::x4, 2);
+        createOversampler (Mode::x8, 3);
 
         reset();
     }
 
 private:
+
     using JUCEOS = juce::dsp::Oversampling<SampleType>;
 
     static constexpr auto filterType =
         JUCEOS::filterHalfBandPolyphaseIIR;
 
-    void createOversampler (Mode mode, int numStages)
+    void createOversampler (Mode mode,
+                            int numStages)
     {
-        auto os = std::make_unique<JUCEOS> (
+        auto os = std::make_unique<JUCEOS>(
             numChannelsPrepared,
             (size_t) numStages,
             filterType,
-            true /* isLatencyCompensated */
+            true
         );
 
         os->initProcessing ((size_t) maxBlockSizePrepared);
+
         oversamplers[(size_t) mode] = std::move (os);
     }
 
     JUCEOS* getOversamplerForCurrentMode() const noexcept
     {
-        const auto mode = requestedMode.load (std::memory_order_acquire);
+        const auto mode =
+            requestedMode.load (std::memory_order_acquire);
+
         if (mode == Mode::Off)
             return nullptr;
 
-        auto& ptr = oversamplers[(size_t) mode];
-        return ptr.get();
+        return oversamplers[(size_t) mode].get();
     }
 
     std::atomic<Mode> requestedMode { Mode::Off };
+
     std::array<std::unique_ptr<JUCEOS>, 4> oversamplers;
 
     int numChannelsPrepared  { 0 };
@@ -158,3 +146,4 @@ private:
 };
 
 } // namespace xb
+

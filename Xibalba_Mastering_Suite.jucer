@@ -24,6 +24,8 @@
     </GROUP>
     <GROUP id="{7736B8A1-DCA9-7F9C-EEF5-924233359C69}" name="DSP">
       <FILE id="zCDgci" name="XC_CompVCA.h" compile="0" resource="0" file="Source/DSP/XC_CompVCA.h"/>
+      <FILE id="HcYTf8" name="XC_CompVCA_Body.h" compile="0" resource="0"
+            file="Source/DSP/XC_CompVCA_Body.h"/>
       <FILE id="BNhOEE" name="XC_Crossover.h" compile="0" resource="0" file="Source/DSP/XC_Crossover.h"/>
       <FILE id="q9YiCu" name="XC_DelayAligner.h" compile="0" resource="0"
             file="Source/DSP/XC_DelayAligner.h"/>
@@ -39,6 +41,8 @@
       <FILE id="XNMz2P" name="XC_Oversampler.h" compile="0" resource="0"
             file="Source/DSP/XC_Oversampler.h"/>
       <FILE id="Kr7prt" name="XC_Router.h" compile="0" resource="0" file="Source/DSP/XC_Router.h"/>
+      <FILE id="pBskpB" name="XC_RS124_ModelCore.h" compile="0" resource="0"
+            file="Source/DSP/RS124/XC_RS124_ModelCore.h"/>
       <FILE id="C106ls" name="XC_Sat.h" compile="0" resource="0" file="Source/DSP/XC_Sat.h"/>
       <FILE id="SPkI2C" name="XC_Sat_Tube.h" compile="0" resource="0" file="Source/DSP/XC_Sat_Tube.h"/>
       <FILE id="e0FrOy" name="XC_SwitchCrossfade.h" compile="0" resource="0"

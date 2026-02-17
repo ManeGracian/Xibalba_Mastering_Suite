@@ -3,30 +3,34 @@
 
     XC_LowSculptorEngine.h
     Created: 16 Feb 2026
-    Updated: 16 Feb 2026 (Paso 7 - Gain staging + PluginDoctor tests)
+    Updated: 17 Feb 2026
     Author:  Mane / Xibalba Studios
 
     Purpose:
     - Engine DSP para X-LowSculptor.
-    - Paso 6: Enable/Mute por banda (BODY/NECK) con crossfade anti-click.
-    - Paso 7: Gain staging base (IN, BODY, NECK, OUT) RT-safe.
-    - Incluye modo TEST (sin UI) para validar en PluginDoctor.
+    - Enable/Mute por banda (BODY/NECK) con crossfade anti-click.
+    - Gain staging base (IN, BODY, NECK, OUT) RT-safe.
+    - Metering IN/OUT (Peak + RMS con ballistics) RT-safe, thread-safe.
+    - BODY SQUEEZE (Comp VCA limpio) integrado como primer comp usable.
 
     Signal Flow:
         IN
           -> IN Gain
+          -> IN Meter
           -> Crossover (LR4)
-              -> BODY band -> BODY Gain -> (Enable Fade)
-              -> NECK band -> NECK Gain -> (Enable Fade)
+              -> BODY band -> BODY Gain -> BODY SQUEEZE (VCA) -> Enable Fade
+              -> NECK band -> NECK Gain -> Enable Fade
           -> SUM (BODY + NECK)
           -> OUT Gain
+          -> OUT Meter
           -> OUT
 
     RT-Safety:
     - No allocs / no locks en process().
-    - Buffers + punteros dimensionados SOLO en prepare().
-    - Atomics para estados de enable.
-    - Gains thread-safe via xb::Gain (atomics + dirty flags).
+    - Buffers dimensionados SOLO en prepare().
+    - Atomics para estados (enable).
+    - Gains thread-safe via xb::Gain.
+    - Meters publican valores via atomics (GUI-safe).
 
   ==============================================================================
 */
@@ -39,6 +43,10 @@
 #include "../../DSP/XC_Crossover.h"
 #include "../../DSP/XC_SwitchCrossfade.h"
 #include "../../DSP/XC_Gain.h"
+#include "../../DSP/XC_Meter.h"
+
+// BODY SQUEEZE (VCA clean comp)
+#include "../../DSP/XC_CompVCA.h"
 
 namespace xb
 {
@@ -88,23 +96,41 @@ public:
         bodyXfade.prepare (sampleRate, fadeMs);
         neckXfade.prepare (sampleRate, fadeMs);
 
-        // Gain staging (Paso 7)
+        // Gain staging
         inGain.prepare   (spec);
         bodyGain.prepare (spec);
         neckGain.prepare (spec);
         outGain.prepare  (spec);
 
-        //--------------------------------------------------------------------------
-        // Defaults (unity)
         inGain.setGainDecibels   (0.0f);
         bodyGain.setGainDecibels (0.0f);
         neckGain.setGainDecibels (0.0f);
         outGain.setGainDecibels  (0.0f);
 
         //--------------------------------------------------------------------------
-        // TEST MODE (PluginDoctor) - SIN UI
-        // Cambia SOLO esta constante para hacer pruebas.
-        applyPluginDoctorTestMode();
+        // BODY SQUEEZE (VCA clean comp)
+        bodySqueeze.prepare (spec);
+        bodySqueeze.reset();
+
+        // Defaults musicales y seguros:
+        bodySqueeze.setThreshold (-24.0f);
+        bodySqueeze.setRatio     (2.0f);
+        bodySqueeze.setKnee      (6.0f);
+        bodySqueeze.setAttack    (20.0f);
+        bodySqueeze.setRelease   (150.0f);
+        bodySqueeze.setMakeupGain(0.0f);
+        bodySqueeze.setLookAhead (0.0f);
+        bodySqueeze.setSidechainHPF (30.0f);
+
+        //--------------------------------------------------------------------------
+        // Metering
+        inMeter.prepare  (spec);
+        outMeter.prepare (spec);
+
+        inMeter.setAttackMs  (5.0f);
+        inMeter.setReleaseMs (300.0f);
+        outMeter.setAttackMs  (5.0f);
+        outMeter.setReleaseMs (300.0f);
 
         //--------------------------------------------------------------------------
         // Estado inicial: ambas bandas ON
@@ -131,6 +157,11 @@ public:
         bodyGain.reset();
         neckGain.reset();
         outGain.reset();
+
+        bodySqueeze.reset();
+
+        inMeter.reset();
+        outMeter.reset();
 
         bodyBuffer.clear();
         neckBuffer.clear();
@@ -164,7 +195,11 @@ public:
         inGain.process (buffer);
 
         //--------------------------------------------------------------------------
-        // 1) Split: IN -> BODY/NECK
+        // 1) IN Meter (post-inGain, pre-crossover)
+        inMeter.process (buffer);
+
+        //--------------------------------------------------------------------------
+        // 2) Split: IN -> BODY/NECK
         {
             juce::dsp::AudioBlock<const float> inBlock (buffer);
 
@@ -178,8 +213,7 @@ public:
         }
 
         //--------------------------------------------------------------------------
-        // 2) Band gains (pre-enable fade)
-        // Nota: Gain::process(AudioBlock&) toma ref no-const, así que guardamos subblocks.
+        // 3) Band gains (pre-squeeze / pre-enable fade)
         {
             juce::dsp::AudioBlock<float> bodyBlock (bodyBuffer);
             juce::dsp::AudioBlock<float> neckBlock (neckBuffer);
@@ -192,7 +226,11 @@ public:
         }
 
         //--------------------------------------------------------------------------
-        // 3) Enable/Mute por banda con crossfade anti-click
+        // 4) BODY SQUEEZE (VCA) ✅ SOLO BODY
+        bodySqueeze.process (bodyBuffer);
+
+        //--------------------------------------------------------------------------
+        // 5) Enable/Mute por banda con crossfade anti-click
         applyBandEnable (bodyBuffer, bodyPrev, bodyXfade,
                          bodyEnabledTarget.load (std::memory_order_acquire),
                          bodyEnabledCurrent, chs, n);
@@ -202,7 +240,7 @@ public:
                          neckEnabledCurrent, chs, n);
 
         //--------------------------------------------------------------------------
-        // 4) SUM -> main output buffer
+        // 6) SUM -> main output buffer
         for (int ch = 0; ch < chs; ++ch)
         {
             auto* out  = buffer.getWritePointer (ch);
@@ -214,37 +252,24 @@ public:
         }
 
         //--------------------------------------------------------------------------
-        // 5) OUT Gain (post-sum)
+        // 7) OUT Gain (post-sum)
         outGain.process (buffer);
+
+        //--------------------------------------------------------------------------
+        // 8) OUT Meter (post-outGain)
+        outMeter.process (buffer);
     }
 
     //==========================================================================
     // Public setters (RT-safe)
-    void setCrossoverHz (float hz) noexcept
-    {
-        crossover.setCutoffHz (hz);
-    }
+    void setCrossoverHz (float hz) noexcept { crossover.setCutoffHz (hz); }
 
-    void setInGainDb (float db) noexcept
-    {
-        inGain.setGainDecibels (db);
-    }
+    void setInGainDb   (float db) noexcept { inGain.setGainDecibels (db); }
+    void setBodyGainDb (float db) noexcept { bodyGain.setGainDecibels (db); }
+    void setNeckGainDb (float db) noexcept { neckGain.setGainDecibels (db); }
+    void setOutGainDb  (float db) noexcept { outGain.setGainDecibels (db); }
 
-    void setBodyGainDb (float db) noexcept
-    {
-        bodyGain.setGainDecibels (db);
-    }
-
-    void setNeckGainDb (float db) noexcept
-    {
-        neckGain.setGainDecibels (db);
-    }
-
-    void setOutGainDb (float db) noexcept
-    {
-        outGain.setGainDecibels (db);
-    }
-
+    // ✅ ESTOS ERAN LOS QUE FALTABAN (para que PluginProcessor compile)
     void setBodyEnabled (bool enabled) noexcept
     {
         bodyEnabledTarget.store (enabled, std::memory_order_release);
@@ -255,70 +280,47 @@ public:
         neckEnabledTarget.store (enabled, std::memory_order_release);
     }
 
-private:
-    //==========================================================================
-    // PluginDoctor test mode selector (SIN UI)
-    enum class TestMode
+    // BODY SQUEEZE (por ahora simple knob: lo mapeas en el processor)
+    // Te dejo helper para que tengas “un knob”:
+    void setBodySqueezeOneKnob (float amt01) noexcept
     {
-        Off = 0,
+        amt01 = juce::jlimit (0.0f, 1.0f, amt01);
 
-        // IN gain tests
-        InPlus6,
-        InMinus6,
+        // Mapeo “museo”: suave al inicio, más intenso al final
+        const float t = amt01 * amt01;
 
-        // OUT gain tests
-        OutPlus6,
-        OutMinus6,
+        // Threshold baja con amount
+        const float thr = juce::jmap (t, -18.0f, -38.0f);
 
-        // Band solo tests (via gains)
-        SoloBody,   // NECK muy bajo
-        SoloNeck    // BODY muy bajo
-    };
+        // Ratio sube con amount
+        const float ratio = juce::jmap (t, 1.2f, 4.0f);
 
-    //*** 🔴 CAMBIA AQUÍ para probar una por una en PluginDoctor:
-    static constexpr TestMode kTestMode = TestMode::Off;
+        // Knee mantiene musicalidad
+        const float knee = juce::jmap (amt01, 9.0f, 3.0f);
 
-    void applyPluginDoctorTestMode() noexcept
-    {
-        // Defaults unity ya aplicados antes de llamar aquí.
-        // Aquí solo sobrescribimos según el modo.
+        // Attack/Release estilo “glue”
+        const float atk = juce::jmap (amt01, 35.0f, 10.0f);
+        const float rel = juce::jmap (amt01, 250.0f, 120.0f);
 
-        switch (kTestMode)
-        {
-            case TestMode::Off:
-                // no-op
-                break;
+        bodySqueeze.setThreshold (thr);
+        bodySqueeze.setRatio (ratio);
+        bodySqueeze.setKnee (knee);
+        bodySqueeze.setAttack (atk);
+        bodySqueeze.setRelease (rel);
 
-            case TestMode::InPlus6:
-                inGain.setGainDecibels (6.0f);
-                break;
-
-            case TestMode::InMinus6:
-                inGain.setGainDecibels (-6.0f);
-                break;
-
-            case TestMode::OutPlus6:
-                outGain.setGainDecibels (6.0f);
-                break;
-
-            case TestMode::OutMinus6:
-                outGain.setGainDecibels (-6.0f);
-                break;
-
-            case TestMode::SoloBody:
-                // NECK casi apagado
-                neckGain.setGainDecibels (-60.0f);
-                break;
-
-            case TestMode::SoloNeck:
-                // BODY casi apagado
-                bodyGain.setGainDecibels (-60.0f);
-                break;
-        }
+        // Makeup 0 por defecto (mantenlo limpio)
+        bodySqueeze.setMakeupGain (0.0f);
     }
 
     //==========================================================================
-    // Band enable crossfade helper (RT-safe)
+    // Meter getters (GUI-safe)
+    [[nodiscard]] float getInPeakDb()  const noexcept { return inMeter.getPeakDb(); }
+    [[nodiscard]] float getInRmsDb()   const noexcept { return inMeter.getRmsDb();  }
+    [[nodiscard]] float getOutPeakDb() const noexcept { return outMeter.getPeakDb(); }
+    [[nodiscard]] float getOutRmsDb()  const noexcept { return outMeter.getRmsDb();  }
+
+private:
+    //==========================================================================
     void applyBandEnable (juce::AudioBuffer<float>& band,
                           juce::AudioBuffer<float>& bandPrevBuffer,
                           xb::XC_SwitchCrossfade& xfade,
@@ -327,10 +329,8 @@ private:
                           int chs,
                           int n) noexcept
     {
-        // Detecta cambio -> dispara crossfade
         if (targetEnabled != currentEnabled)
         {
-            // Si vamos a APAGAR: congelamos audio actual como fuente A (prev)
             if (! targetEnabled)
             {
                 for (int ch = 0; ch < chs; ++ch)
@@ -345,7 +345,6 @@ private:
             currentEnabled = targetEnabled;
         }
 
-        // Sin crossfade activo -> estado estable
         if (! xfade.isActive())
         {
             if (! currentEnabled)
@@ -354,9 +353,6 @@ private:
             return;
         }
 
-        // Crossfade activo:
-        // ON  : out = (1-t)*zeros + t*band  (fade-in)
-        // OFF : out = (1-t)*prev  + t*zeros (fade-out)
         for (int ch = 0; ch < chs; ++ch)
         {
             outPtrs[ch] = band.getWritePointer (ch);
@@ -388,11 +384,18 @@ private:
     // DSP blocks
     xb::Crossover<float> crossover;
 
-    // Gain staging (Paso 7)
+    // Gain staging
     xb::Gain<float> inGain;
     xb::Gain<float> bodyGain;
     xb::Gain<float> neckGain;
     xb::Gain<float> outGain;
+
+    // BODY SQUEEZE (VCA)
+    xb::XC_CompVCA<float> bodySqueeze;
+
+    // Metering
+    xb::Meter<float> inMeter;
+    xb::Meter<float> outMeter;
 
     // Band buffers
     juce::AudioBuffer<float> bodyBuffer, neckBuffer;
@@ -418,3 +421,4 @@ private:
 };
 
 } // namespace xb
+

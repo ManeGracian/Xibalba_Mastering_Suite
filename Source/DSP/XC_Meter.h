@@ -13,17 +13,22 @@ namespace xb
 ==============================================================================
     xb::Meter<SampleType>
 
-    Meter RT-safe para uso en plugins (Mix/Mastering):
+    Meter RT-safe para plugins (Mix/Mastering):
     - Peak (por bloque) + ballistics (attack/release)
-    - RMS (por bloque) + ballistics
+    - RMS  (por bloque) + ballistics
     - Thread-safe: audio thread publica valores; GUI thread los lee vía atomics
     - Channel-agnostic: 1..N canales
 
-    Notas:
-    - "True Peak" aquí es peak del bloque procesado. Si el bloque viene
-      oversampled (por ejemplo después de un oversampler), se aproxima
-      a true peak inter-sample.
-    - No asigna memoria ni bloquea en process().
+    Ballistics (FIX importante):
+    - Este meter mide Peak/RMS "por bloque" y aplica ballistics UNA vez por bloque.
+      Para que attack/release se mantengan consistentes aunque cambie el block size,
+      los coeficientes se calculan con dt = duración del bloque (segundos),
+      NO por muestra.
+
+    Compatibilidad:
+    - No usa FloatVectorOperations::computeRMS ni ::dotProduct (pueden no existir).
+    - RMS se calcula con loop simple (seguro y portable).
+    - Peak usa findMinAndMax (esto sí suele estar en JUCE desde hace años).
 ==============================================================================
 */
 
@@ -83,31 +88,32 @@ public:
             return;
 
         // 1) Actualizar coeficientes si hubo cambios (audio thread)
-        updateBallisticsIfNeeded();
+        updateBallisticsIfNeeded (numSamples);
 
         // 2) Peak del bloque (máximo abs entre canales)
         SampleType blockPeak = SampleType (0);
 
         for (int ch = 0; ch < numCh; ++ch)
         {
-            auto* data = block.getChannelPointer ((size_t) ch);
-            auto mm = juce::FloatVectorOperations::findMinAndMax (data, numSamples);
+            const auto* data = block.getChannelPointer ((size_t) ch);
+            const auto mm = juce::FloatVectorOperations::findMinAndMax (data, numSamples);
 
             const auto absMax = (SampleType) juce::jmax (std::abs (mm.getStart()),
-                                                        std::abs (mm.getEnd()));
+                                                         std::abs (mm.getEnd()));
 
             if (absMax > blockPeak)
                 blockPeak = absMax;
         }
 
-        // 3) RMS del bloque (energía promedio entre canales)
+        // 3) RMS global del bloque (energía promedio entre canales)
+        //    RMS_global = sqrt( mean(x^2) ) sobre todos los samples y canales.
         double sumSquares = 0.0;
-        const double denom = (double) numCh * (double) numSamples;
 
         for (int ch = 0; ch < numCh; ++ch)
         {
-            auto* data = block.getChannelPointer ((size_t) ch);
+            const auto* data = block.getChannelPointer ((size_t) ch);
 
+            // Loop portable
             for (int i = 0; i < numSamples; ++i)
             {
                 const double x = (double) data[i];
@@ -115,9 +121,10 @@ public:
             }
         }
 
-        const SampleType blockRms = (SampleType) std::sqrt (sumSquares / juce::jmax (denom, 1.0));
+        const double denom = juce::jmax (1.0, (double) numCh * (double) numSamples);
+        const SampleType blockRms = (SampleType) std::sqrt (sumSquares / denom);
 
-        // 4) Ballistics (attack/release)
+        // 4) Ballistics (por bloque)
         peakBallistic = applyBallistics (peakBallistic, blockPeak);
         rmsBallistic  = applyBallistics (rmsBallistic,  blockRms);
 
@@ -157,35 +164,46 @@ protected:
 
         sampleRate = spec.sampleRate;
 
-        // Defaults de lectura agradable (tú puedes ajustar)
+        // Defaults (ajustables)
         attackMsTarget.store  (5.0,   std::memory_order_release);
         releaseMsTarget.store (300.0, std::memory_order_release);
         coeffsDirty.store (true, std::memory_order_release);
 
-        updateBallisticsIfNeeded (true);
+        lastBlockSize.store (0, std::memory_order_release);
         reset();
     }
 
 private:
     //==========================================================================
-    void updateBallisticsIfNeeded (bool force = false) noexcept
+    // Coeficientes POR BLOQUE: a = 1 - exp(-dt / T)
+    void updateBallisticsIfNeeded (int currentBlockSize) noexcept
     {
-        if (!force && !coeffsDirty.exchange (false, std::memory_order_acq_rel))
+        const int prev = lastBlockSize.load (std::memory_order_acquire);
+
+        const bool blockSizeChanged = (currentBlockSize != prev);
+        const bool dirty = coeffsDirty.exchange (false, std::memory_order_acq_rel);
+
+        if (!dirty && !blockSizeChanged)
             return;
 
-        if (sampleRate <= 0.0)
+        if (sampleRate <= 0.0 || currentBlockSize <= 0)
             return;
+
+        lastBlockSize.store (currentBlockSize, std::memory_order_release);
 
         const double atkMs = attackMsTarget.load (std::memory_order_acquire);
         const double relMs = releaseMsTarget.load (std::memory_order_acquire);
 
-        // Coeficientes exponenciales por muestra:
-        // y += a*(x - y), a = 1 - exp(-1/(T*srate))
-        const double atkSamps = juce::jmax (0.0001, atkMs * 0.001) * sampleRate;
-        const double relSamps = juce::jmax (0.0001, relMs * 0.001) * sampleRate;
+        const double dt = (double) currentBlockSize / sampleRate;  // segundos por bloque
 
-        attackCoeff  = (SampleType) (1.0 - std::exp (-1.0 / atkSamps));
-        releaseCoeff = (SampleType) (1.0 - std::exp (-1.0 / relSamps));
+        const double atkT = juce::jmax (0.0001, atkMs * 0.001);
+        const double relT = juce::jmax (0.0001, relMs * 0.001);
+
+        attackCoeff  = (SampleType) (1.0 - std::exp (-dt / atkT));
+        releaseCoeff = (SampleType) (1.0 - std::exp (-dt / relT));
+
+        attackCoeff  = juce::jlimit (SampleType (0), SampleType (1), attackCoeff);
+        releaseCoeff = juce::jlimit (SampleType (0), SampleType (1), releaseCoeff);
     }
 
     SampleType applyBallistics (SampleType current, SampleType target) const noexcept
@@ -195,14 +213,13 @@ private:
     }
 
     //==========================================================================
-    // Estado (audio thread)
     double sampleRate { 44100.0 };
 
     SampleType peakBallistic { SampleType (0) };
     SampleType rmsBallistic  { SampleType (0) };
 
-    SampleType attackCoeff  { SampleType (0.01) };
-    SampleType releaseCoeff { SampleType (0.001) };
+    SampleType attackCoeff  { SampleType (0.5) };
+    SampleType releaseCoeff { SampleType (0.1) };
 
     // Publicación (audio -> GUI)
     std::atomic<float> peakLin { 0.0f };
@@ -212,6 +229,9 @@ private:
     std::atomic<double> attackMsTarget  { 5.0 };
     std::atomic<double> releaseMsTarget { 300.0 };
     std::atomic<bool> coeffsDirty { true };
+
+    // Para recalcular coeficientes si cambia block size
+    std::atomic<int> lastBlockSize { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Meter)
 };
