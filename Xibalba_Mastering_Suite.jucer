@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<JUCERPROJECT id="WbSKDJ" name="Xibalba_Mastering_Suite" projectType="audioplug"
+              useAppConfig="0" addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
+              companyName="Xibalba DSP" pluginFormats="buildAU" bundleIdentifier="com.xibalbaDSP.Bundle"
+              pluginChannelConfigs="{1,1}, {2,2} ">
+  <MAINGROUP id="IMas10" name="Xibalba_Mastering_Suite">
+    <GROUP id="{3A6DCB36-CF15-B2A2-D060-7D766AE2A7B8}" name="Source">
+      <FILE id="d7jZTz" name="PluginEditor.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.cpp"/>
+      <FILE id="zBjAr1" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+      <FILE id="W33MrE" name="PluginProcessor.cpp" compile="1" resource="0"
+            file="Source/PluginProcessor.cpp"/>
+      <FILE id="mUNLkV" name="PluginProcessor.h" compile="0" resource="0"
+            file="Source/PluginProcessor.h"/>
+      <GROUP id="{79CC0FBA-1727-C828-E664-1DBFF9A492B3}" name="Plugins">
+        <GROUP id="{F6842F1B-0DEF-68C9-2FB2-AC429E14BC2B}" name="LowSculptor">
+          <FILE id="hjlXHw" name="XC_LowSculptorEngine.cpp" compile="1" resource="0"
+                file="Source/Plugins/LowSculptor/XC_LowSculptorEngine.cpp"/>
+          <FILE id="MY2e8y" name="XC_LowSculptorEngine.h" compile="0" resource="0"
+                file="Source/Plugins/LowSculptor/XC_LowSculptorEngine.h"/>
+        </GROUP>
+      </GROUP>
+    </GROUP>
+    <GROUP id="{7736B8A1-DCA9-7F9C-EEF5-924233359C69}" name="DSP">
+      <FILE id="zCDgci" name="XC_CompVCA.h" compile="0" resource="0" file="Source/DSP/XC_CompVCA.h"/>
+      <FILE id="BNhOEE" name="XC_Crossover.h" compile="0" resource="0" file="Source/DSP/XC_Crossover.h"/>
+      <FILE id="q9YiCu" name="XC_DelayAligner.h" compile="0" resource="0"
+            file="Source/DSP/XC_DelayAligner.h"/>
+      <FILE id="j17nXj" name="XC_DSPBlockBase.h" compile="0" resource="0"
+            file="Source/DSP/XC_DSPBlockBase.h"/>
+      <FILE id="BHR2bg" name="XC_DynamicsCore.h" compile="0" resource="0"
+            file="Source/DSP/XC_DynamicsCore.h"/>
+      <FILE id="dIWsJM" name="XC_Filters.h" compile="0" resource="0" file="Source/DSP/XC_Filters.h"/>
+      <FILE id="R5Ta6R" name="XC_Gain.h" compile="0" resource="0" file="Source/DSP/XC_Gain.h"/>
+      <FILE id="sqJuy1" name="XC_LatencyManager.h" compile="0" resource="0"
+            file="Source/DSP/XC_LatencyManager.h"/>
+      <FILE id="PEwCpk" name="XC_Meter.h" compile="0" resource="0" file="Source/DSP/XC_Meter.h"/>
+      <FILE id="XNMz2P" name="XC_Oversampler.h" compile="0" resource="0"
+            file="Source/DSP/XC_Oversampler.h"/>
+      <FILE id="Kr7prt" name="XC_Router.h" compile="0" resource="0" file="Source/DSP/XC_Router.h"/>
+      <FILE id="C106ls" name="XC_Sat.h" compile="0" resource="0" file="Source/DSP/XC_Sat.h"/>
+      <FILE id="SPkI2C" name="XC_Sat_Tube.h" compile="0" resource="0" file="Source/DSP/XC_Sat_Tube.h"/>
+      <FILE id="e0FrOy" name="XC_SwitchCrossfade.h" compile="0" resource="0"
+            file="Source/DSP/XC_SwitchCrossfade.h"/>
+    </GROUP>
+  </MAINGROUP>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_plugin_client" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="1"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_processors_headless" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="1"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_cryptography" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_dsp" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_opengl" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+  </MODULES>
+  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
+  <EXPORTFORMATS>
+    <XCODE_MAC targetFolder="Builds/MacOSX">
+      <CONFIGURATIONS>
+        <CONFIGURATION isDebug="1" name="Debug" targetName="Xibalba_Mastering_Suite"/>
+        <CONFIGURATION isDebug="0" name="Release" targetName="Xibalba_Mastering_Suite"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_dsp" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_opengl" path="../../../../Applications/JUCE/modules"/>
+        <MODULEPATH id="juce_cryptography" path="../../../../Applications/JUCE/modules"/>
+      </MODULEPATHS>
+    </XCODE_MAC>
+  </EXPORTFORMATS>
+</JUCERPROJECT>
